@@ -51,7 +51,6 @@ def message(payload):
                 parent_message_ts = None
 
             message_data = (user_id, user_info["user"]["real_name"], channel_id, channel_name, text, timestamp, parent_message_ts)
-            print(message_data)
             try:
                 # Insert message
                 db.insert_message(user_id, user_info["user"]["real_name"], channel_id, channel_name, text, timestamp, parent_message_ts)
