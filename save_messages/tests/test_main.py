@@ -1,98 +1,169 @@
-# tests/test_main.py
-
 import unittest
-from save_messages.main import app
-from save_messages.config import DATABASE_CONFIG
-import time
+from unittest.mock import patch, MagicMock
 import json
-import hmac
-import hashlib
+import datetime
+import sys
+import os
 
-SLACK_SIGNING_SECRET = DATABASE_CONFIG.get("slack_signing_secret")
-# SLACK_TOKEN = DATABASE_CONFIG.get("slack_token")
-def generate_slack_signature(secret, timestamp, body):
-    """Generate a Slack signature for testing."""
-    basestring = f"v0:{timestamp}:{body}".encode("utf-8")
-    signature = hmac.new(secret.encode("utf-8"), basestring, hashlib.sha256).hexdigest()
-    return f"v0={signature}"
+# Add the parent directory to sys.path to allow imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from main import app, message, handle_reaction, get_channel_name, change_timestamp_format
+from database import Database
 
 class TestMainApp(unittest.TestCase):
     def setUp(self):
-        """Set up the Flask test client."""
+        """Set up test environment before each test"""
         self.app = app.test_client()
         self.app.testing = True
+        
+        # Mock the database configuration
+        self.db_config_patcher = patch('main.DATABASE_CONFIG', {
+            "slack_signing_secret": "test_secret",
+            "slack_token": "test_token",
+            "dbname": "test_db",
+            "user": "test_user",
+            "password": "test_password",
+            "host": "localhost",
+            "port": 5432
+        })
+        self.db_config_patcher.start()
+        
+        # Mock the host configuration
+        self.host_config_patcher = patch('main.HOST_CONFIG', {
+            "host": "0.0.0.0",
+            "port": 5000,
+            "debug": True
+        })
+        self.host_config_patcher.start()
 
-    def test_health_check(self):
-        """Test the health check endpoint."""
-        response = self.app.get('/health')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, b'OK')
+    def tearDown(self):
+        """Clean up after each test"""
+        self.db_config_patcher.stop()
+        self.host_config_patcher.stop()
 
-    def test_post_message(self):
-        """Test posting a message to the /messages endpoint."""
-        message_data = {
-            "userId": "U12345",
-            "userName": "John Doe",
-            "channelId": "C12345",
-            "channelName": "general",
-            "messageText": "Hello, world!",
-            "timestamp": str(int(time.time())),
-            "parentMessageTimestamp": None
+    def test_change_timestamp_format(self):
+        """Test timestamp conversion function"""
+        test_timestamp = "1609459200.000000"  # 2021-01-01 00:00:00 UTC
+        expected_datetime = datetime.datetime(2021, 1, 1, 0, 0, tzinfo=datetime.timezone.utc)
+        result = change_timestamp_format(test_timestamp)
+        self.assertEqual(result, expected_datetime)
+
+    @patch('main.client')
+    def test_get_channel_name(self, mock_client):
+        """Test channel name retrieval"""
+        mock_client.conversations_info.return_value = {
+            "channel": {"name": "test-channel"}
         }
-        response = self.app.post('/messages', data=json.dumps(message_data), content_type='application/json')
-        self.assertEqual(response.status_code, 201)
-        self.assertIn('messageId', response.json)
+        result = get_channel_name("C123456")
+        self.assertEqual(result, "test-channel")
+        mock_client.conversations_info.assert_called_with(channel="C123456")
 
-    def test_post_invalid_message(self):
-        """Test posting an invalid message."""
-        invalid_message_data = {
-            "userId": "U12345",
-            # Missing userName, channelId, etc.
-        }
-        response = self.app.post('/messages', data=json.dumps(invalid_message_data), content_type='application/json')
-        self.assertEqual(response.status_code, 400)  # Assuming the endpoint returns 400 for bad requests
-
-    def test_slack_event_handling(self):
-        """Test handling a Slack event."""
-        slack_event = {
-            "type": "event_callback",
+    @patch('main.client')
+    @patch('main.db')
+    def test_message_handler(self, mock_db, mock_client):
+        """Test message event handling"""
+        test_payload = {
             "event": {
                 "type": "message",
-                "user": "U12345",
-                "text": "Hello, world!",
-                "ts": str(int(time.time())),
-                "channel": "C12345"
+                "user": "U123456",
+                "channel": "C123456",
+                "text": "Test message",
+                "ts": "1609459200.000000"
             }
         }
-        body = json.dumps(slack_event)
-        timestamp = str(int(time.time()))
-        signature = generate_slack_signature(SLACK_SIGNING_SECRET, timestamp, body)
-
-        headers = {
-            "X-Slack-Request-Timestamp": timestamp,
-            "X-Slack-Signature": signature,
+        
+        mock_client.users_info.return_value = {
+            "user": {"real_name": "Test User"}
         }
-
-        response = self.app.post('/slack/events', data=body, content_type='application/json', headers=headers)
-        self.assertEqual(response.status_code, 200)  # Assuming successful handling returns 200
-
-    def test_slack_event_invalid(self):
-        """Test handling an invalid Slack event."""
-        invalid_slack_event = {
-            "type": "event_callback",
-            # Missing event details
+        mock_client.conversations_info.return_value = {
+            "channel": {"name": "test-channel"}
         }
-        body = json.dumps(invalid_slack_event)
-        timestamp = str(int(time.time()))
-        signature = generate_slack_signature(SLACK_SIGNING_SECRET, timestamp, body)
+        
+        message(test_payload)
+        
+        mock_db.insert_message.assert_called_once()
+        call_args = mock_db.insert_message.call_args[0]
+        self.assertEqual(call_args[0], "U123456")  # user_id
+        self.assertEqual(call_args[1], "Test User")  # real_name
+        self.assertEqual(call_args[2], "C123456")  # channel_id
+        self.assertEqual(call_args[3], "test-channel")  # channel_name
+        self.assertEqual(call_args[4], "Test message")  # text
 
-        headers = {
-            "X-Slack-Request-Timestamp": timestamp,
-            "X-Slack-Signature": signature,
+    @patch('main.client')
+    @patch('main.db')
+    def test_reaction_handler(self, mock_db, mock_client):
+        """Test reaction event handling"""
+        test_payload = {
+            "event": {
+                "type": "reaction_added",
+                "user": "U123456",
+                "reaction": "thumbsup",
+                "item": {
+                    "type": "message",
+                    "channel": "C123456",
+                    "ts": "1609459200.000000"
+                },
+                "event_ts": "1609459201.000000"
+            }
         }
+        
+        mock_client.users_info.return_value = {
+            "user": {"real_name": "Test User"}
+        }
+        mock_db.get_message_id.return_value = 1
+        mock_db.get_reaction_count.return_value = None
+        
+        handle_reaction(test_payload)
+        
+        mock_db.insert_message_reaction.assert_called_once()
+        call_args = mock_db.insert_message_reaction.call_args[0]
+        self.assertEqual(call_args[0], 1)  # message_id
+        self.assertEqual(call_args[1], "U123456")  # user
+        self.assertEqual(call_args[2], "Test User")  # real_name
+        self.assertEqual(call_args[3], "thumbsup")  # reaction_name
 
-        response = self.app.post('/slack/events', data=body, content_type='application/json', headers=headers)
-        self.assertEqual(response.status_code, 400)  # Assuming the endpoint returns 400 for bad requests
+    @patch('main.client')
+    @patch('main.db')
+    def test_reaction_handler_existing_reaction(self, mock_db, mock_client):
+        """Test reaction event handling with existing reaction"""
+        test_payload = {
+            "event": {
+                "type": "reaction_added",
+                "user": "U123456",
+                "reaction": "thumbsup",
+                "item": {
+                    "type": "message",
+                    "channel": "C123456",
+                    "ts": "1609459200.000000"
+                },
+                "event_ts": "1609459201.000000"
+            }
+        }
+        
+        mock_client.users_info.return_value = {
+            "user": {"real_name": "Test User"}
+        }
+        mock_db.get_message_id.return_value = 1
+        mock_db.get_reaction_count.return_value = 1
+        
+        handle_reaction(test_payload)
+        
+        mock_db.update_reaction_count.assert_called_once_with(1, "thumbsup", 2)
+
+    def test_message_handler_error(self):
+        """Test message handler with invalid payload"""
+        test_payload = {
+            "event": {
+                "type": "message",
+                "channel": "C123456",  # Missing user field
+                "text": "Test message",
+                "ts": "1609459200.000000"
+            }
+        }
+        
+        # This should not raise an exception
+        message(test_payload)
 
 if __name__ == '__main__':
     unittest.main()

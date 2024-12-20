@@ -10,6 +10,7 @@ The aim of the project is to store chats and communication on WhatstCookin slack
 ```
 chatbot-tools/
 └── save-messages/
+    ├── __init__.py
     ├── config.py
     ├── database.py
     ├── main.py
@@ -19,6 +20,7 @@ chatbot-tools/
     ├── README.md
     ├── setup.md
     ├── tests/
+        ├── __init__.py
         ├── test_database.py
         └── test_main.py
     └── .env
