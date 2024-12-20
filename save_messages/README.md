@@ -6,20 +6,29 @@ This project is a chatbot message management system that integrates with Slack. 
 The aim of the project is to store chats and communication on WhatstCookin slack channel to provide a mentor to developer on projects going on and information on WhatsCookin.
 
 ## Project Structure
-chatbot-tools/ 
-    └── save-messages/ 
-        ├── config.py 
-        ├── database.py 
-        ├── main.py 
-        ├── requirements.txt 
-        ├── schema.py 
-        └── wsgi.py
 
+```
+chatbot-tools/
+└── save-messages/
+    ├── config.py
+    ├── database.py
+    ├── main.py
+    ├── requirements.txt
+    ├── schema.py
+    ├── wsgi.py
+    ├── README.md
+    ├── setup.md
+    ├── tests/
+        ├── test_database.py
+        └── test_main.py
+    └── .env
+```
 
 ## Installation
 
 ### Prerequisites
 - Python 3.7 or higher
+- pip (Python package installer)
 - PostgreSQL database
 - Slack account with API access
 
@@ -56,10 +65,10 @@ SIGNING_SECRET=<your_slack_signing_secret>
 ### Usage
 1. Start the application:
 ```bash
-python save-messages/main.py
+python save_messages/main.py
 ```
 
-2. The application will run on `http://localhost:5000`
+2. The application will run on `http://<your_host>:<your_port>`
 
 3. Configure your Slack app to send events to the endpoint provided by your Flask application.
 
@@ -70,7 +79,7 @@ python save-messages/main.py
 ### Configuration
 - The application uses a .env file to store sensitive information such as database credentials and Slack API tokens
 - The database is created and populated with tables using the [database.py](save-messages/database.py) script
-- The application uses a Flask development server to run on http://localhost:5000
+- The application uses a Flask development server to run on http://<your_host>:<your_port>
 - Database connection details and Slack API credentials must be provided in the .env file.
 
 For further complaints, enquires or contact

@@ -3,7 +3,7 @@ from slack_sdk.errors import SlackApiError
 from flask import Flask
 from slackeventsapi import SlackEventAdapter
 from database import Database
-from config import DATABASE_CONFIG
+from config import DATABASE_CONFIG, HOST_CONFIG
 import datetime
 
 # Initialize Flask app
@@ -29,7 +29,11 @@ db = Database(dbname=DB_NAME, user=USER,
               password=PASSWORD, host=HOST, port=PORT)
 
 # Ensure database tables are created
-db.create_tables()
+try:
+    db.create_tables()
+    print("DB table successfully created")
+except Exception as e:
+    print(f"Error creating database tables: {e}")
 
 @slack_events_adapter.on('message')
 def message(payload):
@@ -110,4 +114,4 @@ def change_timestamp_format(timestamp):
     return dt_object
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(host=HOST_CONFIG.get("host"), port=HOST_CONFIG.get("port"), debug=HOST_CONFIG.get("debug"))
