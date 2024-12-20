@@ -1,6 +1,12 @@
 # tests/test_database.py
 
 import unittest
+import sys
+import os
+
+# Add the parent directory to sys.path to allow imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from save_messages.database import Database
 from save_messages.config import DATABASE_CONFIG
 import psycopg2
